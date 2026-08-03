@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>微信转账截图生成器</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .wx-green { color: #07c160; }
+    .bg-wx-green { background-color: #07c160; }
+    .wx-blue { color: #576b95; }
+    .wx-text { color: #000000; }
+    .wx-sub { color: #b2b2b2; }
+
+    .ios-font {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .phone-frame {
+      width: 300px;
+      height: 653px;
+      border-radius: 18px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+      background: #ffffff;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .phone-screen {
+      width: 300px;
+      height: 653px;
+      background: #ffffff;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* ---- 导航栏 ---- */
+    .nav-bar {
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+    }
+    .nav-back { width: 12px; height: 20px; }
+    .nav-more { width: 20px; height: 12px; }
+
+    /* ---- 绿色对勾 ---- */
+    .check-circle {
+      width: 36px;
+      height: 36px;
+      background: #07c160;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ---- 金额 ---- */
+    .amount-num {
+      font-size: 30px;
+      font-weight: 400;
+      color: #000000;
+      letter-spacing: -0.3px;
+      line-height: 1;
+    }
+    .amount-symbol {
+      font-family: "Hiragino Sans GB", "Hiragino Sans", "PingFang SC", "Heiti SC", -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 16px;
+      font-weight: 500;
+      color: #000000;
+      display: inline-block;
+      position: relative;
+      top: -3px;
+      margin-right: 2px;
+    }
+
+    ::-webkit-scrollbar { width: 0; height: 0; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-6 ios-font">
+  <div class="max-w-7xl mx-auto">
+    <header class="mb-6">
+      <h1 class="text-2xl font-bold text-gray-800">微信转账截图生成器</h1>
+      <p class="text-sm text-gray-500 mt-1">左侧填写信息，右侧实时预览。截图由 Playwright + Chromium 后端渲染，像素级精准。</p>
+    </header>
+
+    <div class="flex flex-col lg:flex-row gap-8 items-start">
+      <!-- 控制面板 -->
+      <div class="w-full lg:w-96 bg-white rounded-2xl shadow p-6 space-y-5">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">收款方</label>
+          <input type="text" id="payee" value="小牛修车" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">金额（元）</label>
+          <input type="number" id="amount" value="1805.00" step="0.01" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">转账说明</label>
+          <input type="text" id="note" value="修理费" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">转账时间</label>
+          <input type="text" id="transferTime" value="2025年07月17日 09:25:32" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">收款时间</label>
+          <input type="text" id="receiveTime" value="2025年07月17日 15:24:06" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+        </div>
+        <div class="flex gap-3">
+          <button id="downloadBtn" class="flex-1 bg-wx-green text-white font-medium py-3 rounded-xl shadow hover:bg-green-600 transition active:scale-95">
+            下载截图
+          </button>
+          <button id="downloadH2cBtn" class="flex-none px-4 py-3 rounded-xl border border-gray-300 text-gray-500 text-sm hover:bg-gray-50 transition active:scale-95" title="备用：html2canvas 前端截图">
+            h2c
+          </button>
+        </div>
+        <p class="text-xs text-gray-400 text-center" id="status">Playwright 后端渲染</p>
+      </div>
+
+      <!-- 预览区域 -->
+      <div class="flex-1 flex justify-center overflow-auto p-6">
+        <div class="phone-frame">
+          <div id="capture" class="phone-screen">
+            <!-- 导航栏 -->
+            <div class="nav-bar">
+              <svg class="nav-back" viewBox="0 0 12 20" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9,16 3,10 9,4"></polyline>
+              </svg>
+              <svg class="nav-more" viewBox="0 0 20 12" fill="#000">
+                <circle cx="3" cy="6" r="2"/><circle cx="10" cy="6" r="2"/><circle cx="17" cy="6" r="2"/>
+              </svg>
+            </div>
+
+            <!-- 主内容 -->
+            <div class="bg-white px-[22px] pt-[72px] text-center">
+              <div class="check-circle mx-auto mb-[12px]">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20,6 9,17 4,12"></polyline>
+                </svg>
+              </div>
+
+              <p class="text-[13px] wx-text mb-[14px] font-normal tracking-[0.2px]"><span id="payeeDisplay">小牛修车</span>已收款</p>
+
+              <div class="mb-[24px]">
+                <span class="amount-symbol">¥</span><span class="amount-num" id="amountDisplay">1805.00</span>
+              </div>
+
+              <div class="border-t border-[#f0f0f0]"></div>
+
+              <div class="mt-[14px] space-y-[6px] text-[13px] leading-[18px]">
+                <div class="flex justify-between">
+                  <span class="wx-sub">转账说明</span>
+                  <span class="wx-text" id="noteDisplay">修理费</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="wx-sub">转账时间</span>
+                  <span class="wx-text" id="transferTimeDisplay">2025年07月17日 09:25:32</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="wx-sub">收款时间</span>
+                  <span class="wx-text" id="receiveTimeDisplay">2025年07月17日 15:24:06</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 底部链接 -->
+            <div class="absolute bottom-[28px] left-0 right-0 text-center">
+              <a class="text-[13px] wx-blue cursor-pointer">账单详情</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const inputs = {
+      payee: document.getElementById('payee'),
+      amount: document.getElementById('amount'),
+      note: document.getElementById('note'),
+      transferTime: document.getElementById('transferTime'),
+      receiveTime: document.getElementById('receiveTime'),
+    };
+    const displays = {
+      payee: document.getElementById('payeeDisplay'),
+      amount: document.getElementById('amountDisplay'),
+      note: document.getElementById('noteDisplay'),
+      transferTime: document.getElementById('transferTimeDisplay'),
+      receiveTime: document.getElementById('receiveTimeDisplay'),
+    };
+
+    function formatMoney(num) {
+      const n = parseFloat(num);
+      if (isNaN(n)) return '0.00';
+      return n.toFixed(2);
+    }
+    function formatTime(str) {
+      if (!str) return str;
+      return str.replace(/(\d{4})年(\d{2})/g, '$1年 $2');
+    }
+    function update() {
+      displays.payee.textContent = inputs.payee.value || '对方';
+      displays.amount.textContent = formatMoney(inputs.amount.value);
+      displays.note.textContent = inputs.note.value || '-';
+      displays.transferTime.textContent = formatTime(inputs.transferTime.value);
+      displays.receiveTime.textContent = formatTime(inputs.receiveTime.value);
+    }
+    Object.values(inputs).forEach(el => {
+      el.addEventListener('input', update);
+      el.addEventListener('change', update);
+    });
+
+    update();
+
+    // ===== Playwright 截图下载 =====
+    document.getElementById('downloadBtn').addEventListener('click', async () => {
+      const status = document.getElementById('status');
+      status.textContent = '渲染中...';
+      const btn = document.getElementById('downloadBtn');
+      btn.disabled = true;
+
+      try {
+        const resp = await fetch('http://localhost:8081/screenshot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            payee: inputs.payee.value,
+            amount: inputs.amount.value,
+            note: inputs.note.value,
+            transferTime: inputs.transferTime.value,
+            receiveTime: inputs.receiveTime.value,
+          }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+          throw new Error(err.error || `HTTP ${resp.status}`);
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `微信转账_${inputs.payee.value}_${formatMoney(inputs.amount.value)}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+        status.textContent = 'Playwright 后端渲染 ✅';
+      } catch (e) {
+        status.textContent = `❌ ${e.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // ===== html2canvas 备用下载 =====
+    document.getElementById('downloadH2cBtn').addEventListener('click', async () => {
+      const status = document.getElementById('status');
+      status.textContent = 'html2canvas 渲染中... (备用)';
+
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      document.head.appendChild(script);
+
+      script.onload = async () => {
+        const capture = document.getElementById('capture');
+        const canvas = await html2canvas(capture, {
+          scale: 2,
+          backgroundColor: '#ffffff',
+          useCORS: true,
+          logging: false,
+          width: capture.offsetWidth,
+          height: capture.offsetHeight,
+          windowWidth: capture.offsetWidth,
+          windowHeight: capture.offsetHeight,
+        });
+        const a = document.createElement('a');
+        a.download = `微信转账_${inputs.payee.value}_${formatMoney(inputs.amount.value)}.png`;
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+        status.textContent = 'html2canvas 备用 ✅';
+      };
+    });
+  </script>
+</body>
+</html>
