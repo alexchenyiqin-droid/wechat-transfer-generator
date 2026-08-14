@@ -115,10 +115,10 @@
             下载截图
           </button>
           <button id="downloadH2cBtn" class="flex-none px-4 py-3 rounded-xl border border-gray-300 text-gray-500 text-sm hover:bg-gray-50 transition active:scale-95" title="备用：html2canvas 前端截图">
-            h2c
+            前端截图
           </button>
         </div>
-        <p class="text-xs text-gray-400 text-center" id="status">Playwright 后端渲染</p>
+        <p class="text-xs text-gray-400 text-center" id="status">本地用 Playwright 高清渲染，在线自动降级为浏览器截图</p>
       </div>
 
       <!-- 预览区域 -->
@@ -216,71 +216,106 @@
 
     update();
 
-    // ===== Playwright 截图下载 =====
-    document.getElementById('downloadBtn').addEventListener('click', async () => {
-      const status = document.getElementById('status');
-      status.textContent = '渲染中...';
-      const btn = document.getElementById('downloadBtn');
-      btn.disabled = true;
+    // ===== 智能下载：优先 Playwright 后端，失败自动降级为浏览器内 html2canvas =====
+    const BACKEND_URL = 'http://localhost:8081'; // 本地 Playwright 服务地址；在线部署若无后端会自动降级
 
+    function getPayload() {
+      return {
+        payee: inputs.payee.value,
+        amount: inputs.amount.value,
+        note: inputs.note.value,
+        transferTime: inputs.transferTime.value,
+        receiveTime: inputs.receiveTime.value,
+      };
+    }
+    function triggerDownload(data, filename) {
+      const url = (data instanceof Blob) ? URL.createObjectURL(data) : data;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      if (data instanceof Blob) URL.revokeObjectURL(url);
+    }
+    function fileName() {
+      return `微信转账_${inputs.payee.value}_${formatMoney(inputs.amount.value)}.png`;
+    }
+
+    async function downloadViaBackend() {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
       try {
-        const resp = await fetch('http://localhost:8081/screenshot', {
+        const resp = await fetch(BACKEND_URL + '/screenshot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            payee: inputs.payee.value,
-            amount: inputs.amount.value,
-            note: inputs.note.value,
-            transferTime: inputs.transferTime.value,
-            receiveTime: inputs.receiveTime.value,
-          }),
+          body: JSON.stringify(getPayload()),
+          signal: controller.signal,
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
           throw new Error(err.error || `HTTP ${resp.status}`);
         }
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `微信转账_${inputs.payee.value}_${formatMoney(inputs.amount.value)}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
-        status.textContent = 'Playwright 后端渲染 ✅';
+        return await resp.blob();
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function downloadViaHtml2canvas() {
+      await new Promise((resolve, reject) => {
+        if (window.html2canvas) return resolve();
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('html2canvas 加载失败'));
+        document.head.appendChild(s);
+      });
+      const capture = document.getElementById('capture');
+      const canvas = await html2canvas(capture, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        logging: false,
+        width: capture.offsetWidth,
+        height: capture.offsetHeight,
+        windowWidth: capture.offsetWidth,
+        windowHeight: capture.offsetHeight,
+      });
+      return canvas.toDataURL('image/png');
+    }
+
+    document.getElementById('downloadBtn').addEventListener('click', async () => {
+      const status = document.getElementById('status');
+      const btn = document.getElementById('downloadBtn');
+      btn.disabled = true;
+      status.textContent = '渲染中...';
+      try {
+        const blob = await downloadViaBackend();
+        triggerDownload(blob, fileName());
+        status.textContent = 'Playwright 高清渲染 ✅';
       } catch (e) {
-        status.textContent = `❌ ${e.message}`;
+        try {
+          const dataUrl = await downloadViaHtml2canvas();
+          triggerDownload(dataUrl, fileName());
+          status.textContent = '浏览器内截图 (html2canvas) ✅';
+        } catch (e2) {
+          status.textContent = `❌ ${e2.message}`;
+        }
       } finally {
         btn.disabled = false;
       }
     });
 
-    // ===== html2canvas 备用下载 =====
+    // ===== html2canvas 显式备用按钮 =====
     document.getElementById('downloadH2cBtn').addEventListener('click', async () => {
       const status = document.getElementById('status');
-      status.textContent = 'html2canvas 渲染中... (备用)';
-
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-      document.head.appendChild(script);
-
-      script.onload = async () => {
-        const capture = document.getElementById('capture');
-        const canvas = await html2canvas(capture, {
-          scale: 2,
-          backgroundColor: '#ffffff',
-          useCORS: true,
-          logging: false,
-          width: capture.offsetWidth,
-          height: capture.offsetHeight,
-          windowWidth: capture.offsetWidth,
-          windowHeight: capture.offsetHeight,
-        });
-        const a = document.createElement('a');
-        a.download = `微信转账_${inputs.payee.value}_${formatMoney(inputs.amount.value)}.png`;
-        a.href = canvas.toDataURL('image/png');
-        a.click();
-        status.textContent = 'html2canvas 备用 ✅';
-      };
+      status.textContent = 'html2canvas 渲染中...';
+      try {
+        const dataUrl = await downloadViaHtml2canvas();
+        triggerDownload(dataUrl, fileName());
+        status.textContent = 'html2canvas 前端截图 ✅';
+      } catch (e) {
+        status.textContent = `❌ ${e.message}`;
+      }
     });
   </script>
 </body>
